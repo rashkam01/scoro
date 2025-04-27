@@ -49,6 +49,17 @@ class EvaluationAgent:
                 start_to_close_timeout=timedelta(seconds=120),
             )
             self.result = result
+
+            
+            result = await agent.step(
+                function=execute_node,
+                function_input=event_input,
+                execution_result = result,
+                start_to_close_timeout=timedelta(seconds=120),
+            )
+            self.result = result
+
+
             return result
         except Exception as e:
             error_message = f"Error during evaluation: {e}"

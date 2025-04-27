@@ -12,7 +12,8 @@ def raise_exception(message: str) -> None:
     raise NonRetryableError(message)
 
 class ExecutionInput(BaseModel):
-    prompt: str
+    prompt_execution: str
+    prompt_scoring: str
     category: list[float]
     language: Literal["EN", "DE"]
     provider: Literal["openai", "anthropic", "mistral"]  # specify allowed providers
@@ -26,7 +27,19 @@ class EvaluationStep(BaseModel):
 class ExecutionOutput(BaseModel):
     steps: list[EvaluationStep]
 
-async def evaluate_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
+class ScoringOutput(BaseModel):
+    value: float
+    rationale: str
+    feedback: str
+
+async def evaluate_with_openai(input_data: ExecutionInput,scoring_mode=False) -> ExecutionOutput:
+
+    if scoring_mode:
+        expected_output = ScoringOutput
+    else:
+        expected_output = ExecutionOutput
+
+
     try:
         log.info("OpenAI evaluation started", input_data=input_data)
 
@@ -45,7 +58,7 @@ async def evaluate_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
                 {"role": "system", "content": "You are a execution assistant responsible for generating step-by-step execution for evaluating specific feature nodes within a structured task."},
                 {"role": "user", "content": input_data.prompt}
             ],
-            response_format=ExecutionOutput,
+            response_format=expected_output,
             temperature=0.0,
 
         )
@@ -56,6 +69,9 @@ async def evaluate_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
 
         # Step 1: Parse the JSON string into a Python dict
         response_content_dict = json.loads(response_content)
+
+        if scoring_mode:
+            return ScoringOutput(**response_content_dict)
 
         # Step 2: Now safely iterate
         steps = [
@@ -74,7 +90,7 @@ async def evaluate_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
         error_message = f"OpenAI evaluation failed: {e}"
         raise NonRetryableError(error_message) from e
 
-async def evaluate_with_anthropic(input_data: ExecutionInput) -> ExecutionOutput:
+async def evaluate_with_anthropic(input_data: ExecutionInput,scoring_mode=False) -> ExecutionOutput:
     # Anthropic-specific evaluation logic
     steps = [
         EvaluationStep(
@@ -85,7 +101,7 @@ async def evaluate_with_anthropic(input_data: ExecutionInput) -> ExecutionOutput
     ]
     return ExecutionOutput(steps=steps)
 
-async def evaluate_with_mistral(input_data: ExecutionInput) -> ExecutionOutput:
+async def evaluate_with_mistral(input_data: ExecutionInput,scoring_mode=False) -> ExecutionOutput:
     # Mistral-specific evaluation logic
     steps = [
         EvaluationStep(
@@ -97,7 +113,7 @@ async def evaluate_with_mistral(input_data: ExecutionInput) -> ExecutionOutput:
     return ExecutionOutput(steps=steps)
 
 @function.defn()
-async def execute_node(function_input: ExecutionInput) -> ExecutionOutput:
+async def execute_node(function_input: ExecutionInput,scoring_mode=False) -> ExecutionOutput:
     try:
         log.info("evaluate_answer function started", function_input=function_input)
         
@@ -113,6 +129,29 @@ async def execute_node(function_input: ExecutionInput) -> ExecutionOutput:
             
         evaluation_function = provider_map[function_input.provider]
         result = await evaluation_function(function_input)
+        
+        return result
+    except Exception as e:
+        error_message = f"Evaluation failed: {e}"
+        raise NonRetryableError(error_message) from e
+
+
+@function.defn()
+async def score_node(function_input: ExecutionInput, execution_result:ExecutionOutput) -> ScoringOutput:
+    try:
+        log.info("score_answer function started", function_input=function_input)
+           # Route to appropriate evaluation function based on provider
+        provider_map = {
+            "openai": evaluate_with_openai,
+            "anthropic": evaluate_with_anthropic,
+            "mistral": evaluate_with_mistral
+        }
+        
+        if function_input.provider not in provider_map:
+            raise NonRetryableError(f"Unsupported provider: {function_input.provider}")
+            
+        evaluation_function = provider_map[function_input.provider]
+        result = await evaluation_function(function_input,scoring_mode=True)
         
         return result
     except Exception as e:
