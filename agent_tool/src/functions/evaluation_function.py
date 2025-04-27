@@ -25,6 +25,32 @@ class EvaluationStep(BaseModel):
 class ExecutionOutput(BaseModel):
     steps: list[EvaluationStep]
 
+
+class ScoringOutput(BaseModel):
+    score: float
+    feedback: str
+
+@function.defn()
+async def score_evaluation(function_input: ExecutionOutput) -> ScoringOutput:
+    try:
+        log.info("Scoring evaluation started", input=function_input)
+
+        # Simple scoring logic based on number of steps in the evaluation output
+        steps_count = len(function_input.steps)
+
+        # For example: more steps = higher score
+        score = min(0.0, steps_count / 1.0)  # Max score capped at 1.0
+
+        feedback = "Good job!" if score > 0.5 else "Needs improvement."
+
+        log.info("Scoring evaluation completed", score=score, feedback=feedback)
+
+        return ScoringOutput(score=score, feedback=feedback)
+    except Exception as e:
+        error_message = f"Scoring evaluation failed: {e}"
+        raise NonRetryableError(error_message) from e
+
+
 async def evaluate_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
     try:
         log.info("OpenAI evaluation started", input_data=input_data)
