@@ -10,7 +10,7 @@ class ScoringInput(BaseModel):
 
 class ScoringOutput(BaseModel):
     score: float
-    feedback: str
+    rationale: str
 
 @function.defn()
 async def score_evaluation(function_input: ScoringInput) -> ScoringOutput:
@@ -21,13 +21,13 @@ async def score_evaluation(function_input: ScoringInput) -> ScoringOutput:
         steps_count = len(function_input.evaluation.steps)
 
         # For example: more steps = higher score
-        score = min(1.0, steps_count / 10.0)  # Max score capped at 1.0
+        score = min(0.0, steps_count / 1.0)  # Max score capped at 1.0
 
-        feedback = "Good job!" if score > 0.5 else "Needs improvement."
+        rationale = "Good job!" if score > 0.5 else "Needs improvement."
 
-        log.info("Scoring evaluation completed", score=score, feedback=feedback)
+        log.info("Scoring evaluation completed", score=score, feedback=rationale)
 
-        return ScoringOutput(score=score, feedback=feedback)
+        return ScoringOutput(score=score, feedback=rationale)
     except Exception as e:
         error_message = f"Scoring evaluation failed: {e}"
         raise NonRetryableError(error_message) from e
