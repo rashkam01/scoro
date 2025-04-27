@@ -40,6 +40,7 @@ async def llm_chat(function_input: LlmChatInput) -> ChatCompletion:
     try:
         log.info("llm_chat function started", function_input=function_input)
 
+
         if os.environ.get("RESTACK_API_KEY") is None:
             raise_exception("RESTACK_API_KEY is not set")
 

@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Literal
 from pydantic import BaseModel
 from restack_ai.agent import NonRetryableError, agent, import_functions, log
 
@@ -6,7 +7,7 @@ with import_functions():
     from src.functions.evaluation_function import (
         ExecutionInput,
         ExecutionOutput,
-        evaluate_answer,
+        execute_node,
     )
 
 class EndEvent(BaseModel):
@@ -14,6 +15,25 @@ class EndEvent(BaseModel):
 
 @agent.defn()
 class EvaluationAgent:
+    """Evaluation agent for processing evaluation requests."""
+    
+    schema = {
+        "initial_event": "evaluate",
+        "events": {
+            "evaluate": {
+                "input": ExecutionInput,
+                "description": "Evaluate input using specified parameters",
+                "default_input": {
+                    "prompt": "Sample student answer",
+                    "category": [1.0],
+                    "language": "EN",
+                    "provider": "default",
+                    "model": "default"
+                }
+            }
+        }
+    }
+
     def __init__(self) -> None:
         self.end = False
         self.result = None
@@ -24,8 +44,8 @@ class EvaluationAgent:
         
         try:
             result = await agent.step(
-                function=evaluate_answer,
-                function_input=event_input,  # We can pass event_input directly since it's ExecutionInput
+                function=execute_node,
+                function_input=event_input,
                 start_to_close_timeout=timedelta(seconds=120),
             )
             self.result = result
@@ -44,4 +64,6 @@ class EvaluationAgent:
     async def run(self, agent_input: dict) -> None:
         log.info("EvaluationAgent agent_input", agent_input=agent_input)
         await agent.condition(lambda: self.end)
+
+
 

@@ -10,13 +10,13 @@ from src.agents.evaluation_agent import EvaluationAgent
 from src.client import client
 from src.functions.llm_chat import llm_chat
 from src.functions.lookup_sales import lookup_sales
-from src.functions.evaluation_function import evaluate_answer
+from src.functions.evaluation_function import execute_node
 
 
 async def main() -> None:
     await client.start_service(
-        agents=[AgentChatToolFunctions, EvaluationAgent],
-        functions=[lookup_sales, llm_chat, evaluate_answer],
+        agents=[EvaluationAgent],
+        functions=[execute_node],
     )
 
 
