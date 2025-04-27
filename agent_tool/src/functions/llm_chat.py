@@ -55,6 +55,8 @@ async def llm_chat(function_input: LlmChatInput) -> ChatCompletion:
                 Message(role="system", content=function_input.system_content or "")
             )
 
+        log.info("pydantic_function_tool", function_data=function_input)
+        
         result = client.chat.completions.create(
             model=function_input.model or "gpt-4o-mini",
             messages=function_input.messages,

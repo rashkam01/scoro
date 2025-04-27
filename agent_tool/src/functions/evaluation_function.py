@@ -1,13 +1,21 @@
 from typing import Literal
+import os
+
 from pydantic import BaseModel
 from restack_ai.function import NonRetryableError, function, log
+from openai import OpenAI
+
+
+def raise_exception(message: str) -> None:
+    log.error(message)
+    raise NonRetryableError(message)
 
 class ExecutionInput(BaseModel):
     prompt: str
     category: list[float]
     language: Literal["EN", "DE"]
     provider: Literal["openai", "anthropic", "mistral"]  # specify allowed providers
-    model: Literal["gpt-4", "claude-2", "mistral-large"]  # specify allowed models
+    model: Literal["gpt-4.1-mini", "claude-2", "mistral-large"]  # specify allowed models
 
 class EvaluationStep(BaseModel):
     instruction: int
@@ -18,15 +26,50 @@ class ExecutionOutput(BaseModel):
     steps: list[EvaluationStep]
 
 async def evaluate_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
-    # OpenAI-specific evaluation logic
-    steps = [
-        EvaluationStep(
-            instruction=1,
-            rationale="OpenAI evaluation",
-            reasoning=f"Using model: {input_data.model}"
+    try:
+        log.info("OpenAI evaluation started", input_data=input_data)
+
+        if os.environ.get("RESTACK_API_KEY") is None:
+            raise_exception("RESTACK_API_KEY is not set")
+
+        client = OpenAI(
+            base_url="https://ai.restack.io", 
+            api_key=os.environ.get("RESTACK_API_KEY")
         )
-    ]
-    return ExecutionOutput(steps=steps)
+
+
+        result = client.beta.chat.completions.parse(
+            model=input_data.model,
+            messages=[
+                {"role": "system", "content": "You are a execution assistant responsible for generating step-by-step execution for evaluating specific feature nodes within a structured task."},
+                {"role": "user", "content": input_data.prompt}
+            ],
+            response_format=ExecutionOutput,
+            temperature=0.0,
+
+        )
+
+        # Extract the evaluation steps from the response
+        response_content = result.choices[0].message.content
+        
+        log.info("Response from OpenAI", response=response_content)
+
+
+        # Create evaluation steps from the response
+        steps = [
+            EvaluationStep(
+                instruction=1,
+                rationale="OpenAI Analysis",
+                reasoning=response_content
+            )
+        ]
+
+        log.info("OpenAI evaluation completed", steps=steps)
+        return ExecutionOutput(steps=steps)
+
+    except Exception as e:
+        error_message = f"OpenAI evaluation failed: {e}"
+        raise NonRetryableError(error_message) from e
 
 async def evaluate_with_anthropic(input_data: ExecutionInput) -> ExecutionOutput:
     # Anthropic-specific evaluation logic
