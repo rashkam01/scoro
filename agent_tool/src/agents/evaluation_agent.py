@@ -8,6 +8,8 @@ with import_functions():
         ExecutionInput,
         ExecutionOutput,
         execute_node,
+        score_node,
+        ScoringOutput
     )
 
 class EndEvent(BaseModel):
@@ -24,7 +26,8 @@ class EvaluationAgent:
                 "input": ExecutionInput,
                 "description": "Evaluate input using specified parameters",
                 "default_input": {
-                    "prompt": "Sample student answer",
+                    "prompt_execution": "Sample student answer",
+                    "prompt_scoring": "Sample student answer",
                     "category": [1.0],
                     "language": "EN",
                     "provider": "default",
@@ -39,7 +42,7 @@ class EvaluationAgent:
         self.result = None
 
     @agent.event
-    async def evaluate(self, event_input: ExecutionInput) -> ExecutionOutput:
+    async def evaluate(self, event_input: ExecutionInput) -> ScoringOutput:
         log.info(f"Received evaluation request: {event_input}")
         
         try:
@@ -48,19 +51,22 @@ class EvaluationAgent:
                 function_input=event_input,
                 start_to_close_timeout=timedelta(seconds=120),
             )
-            self.result = result
+            log.info("Result Executiong", result=result)
 
             
-            result = await agent.step(
-                function=execute_node,
+            result_scoring = await agent.step(
+                function=score_node,
                 function_input=event_input,
                 execution_result = result,
                 start_to_close_timeout=timedelta(seconds=120),
             )
-            self.result = result
+            
+            
+            log.info("Result Scoring", result_scoring=result_scoring)
+            self.result = result_scoring
 
 
-            return result
+            return result_scoring
         except Exception as e:
             error_message = f"Error during evaluation: {e}"
             raise NonRetryableError(error_message) from e

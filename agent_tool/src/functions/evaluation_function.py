@@ -32,35 +32,28 @@ class ScoringOutput(BaseModel):
     rationale: str
     feedback: str
 
-async def evaluate_with_openai(input_data: ExecutionInput,scoring_mode=False) -> ExecutionOutput:
-
-    if scoring_mode:
-        expected_output = ScoringOutput
-    else:
-        expected_output = ExecutionOutput
-
-
+async def execute_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
+    """Execute evaluation with OpenAI."""
     try:
-        log.info("OpenAI evaluation started", input_data=input_data)
+        log.info("OpenAI execution started", input_data=input_data)
+        prompt = input_data.prompt_execution
 
         if os.environ.get("RESTACK_API_KEY") is None:
             raise_exception("RESTACK_API_KEY is not set")
 
         client = OpenAI(
-            base_url="https://ai.restack.io", 
+            base_url="https://ai.restack.io",
             api_key=os.environ.get("RESTACK_API_KEY")
         )
-
 
         result = client.beta.chat.completions.parse(
             model=input_data.model,
             messages=[
                 {"role": "system", "content": "You are a execution assistant responsible for generating step-by-step execution for evaluating specific feature nodes within a structured task."},
-                {"role": "user", "content": input_data.prompt}
+                {"role": "user", "content": prompt}
             ],
-            response_format=expected_output,
+            response_format=ExecutionOutput,
             temperature=0.0,
-
         )
 
         # Extract the evaluation steps from the response
@@ -69,9 +62,6 @@ async def evaluate_with_openai(input_data: ExecutionInput,scoring_mode=False) ->
 
         # Step 1: Parse the JSON string into a Python dict
         response_content_dict = json.loads(response_content)
-
-        if scoring_mode:
-            return ScoringOutput(**response_content_dict)
 
         # Step 2: Now safely iterate
         steps = [
@@ -83,15 +73,57 @@ async def evaluate_with_openai(input_data: ExecutionInput,scoring_mode=False) ->
             for step in response_content_dict["steps"]
         ]
 
-        log.info("OpenAI evaluation completed", steps=steps)
+        log.info("OpenAI execution completed", steps=steps)
         return ExecutionOutput(steps=steps)
 
     except Exception as e:
-        error_message = f"OpenAI evaluation failed: {e}"
+        error_message = f"OpenAI execution failed: {e}"
         raise NonRetryableError(error_message) from e
 
-async def evaluate_with_anthropic(input_data: ExecutionInput,scoring_mode=False) -> ExecutionOutput:
-    # Anthropic-specific evaluation logic
+async def score_with_openai(input_data: ExecutionInput, execution_result: str) -> ScoringOutput:
+    """Score evaluation with OpenAI."""
+    try:
+        prompt = input_data.prompt_scoring + execution_result
+        log.info("Prompt Score", prompt=prompt)
+
+
+        if os.environ.get("RESTACK_API_KEY") is None:
+            raise_exception("RESTACK_API_KEY is not set")
+
+        client = OpenAI(
+            base_url="https://ai.restack.io",
+            api_key=os.environ.get("RESTACK_API_KEY")
+        )
+
+        result = client.beta.chat.completions.parse(
+            model=input_data.model,
+            messages=[
+                {"role": "system", "content": "You are a scoring assistant responsible for evaluating execution results."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format=ScoringOutput,
+            temperature=0.0,
+        )
+
+        # Extract the scoring result from the response
+        response_content = result.choices[0].message.content
+        log.info("response_content", response_content=response_content)
+
+        # Parse the JSON string into a Python dict
+        response_content_dict = json.loads(response_content)
+
+        # Create and return the ScoringOutput
+        scoring_output = ScoringOutput(**response_content_dict)
+        log.info("OpenAI scoring completed", scoring_output=scoring_output)
+        return scoring_output
+
+    except Exception as e:
+        error_message = f"OpenAI scoring failed: {e}"
+        raise NonRetryableError(error_message) from e
+
+async def execute_with_anthropic(input_data: ExecutionInput) -> ExecutionOutput:
+    """Execute evaluation with Anthropic."""
+    # Anthropic-specific execution logic
     steps = [
         EvaluationStep(
             instruction=1,
@@ -101,8 +133,18 @@ async def evaluate_with_anthropic(input_data: ExecutionInput,scoring_mode=False)
     ]
     return ExecutionOutput(steps=steps)
 
-async def evaluate_with_mistral(input_data: ExecutionInput,scoring_mode=False) -> ExecutionOutput:
-    # Mistral-specific evaluation logic
+async def score_with_anthropic(input_data: ExecutionInput, execution_result: str) -> ScoringOutput:
+    """Score evaluation with Anthropic."""
+    # Anthropic-specific scoring logic
+    return ScoringOutput(
+        value=0.5,  # Default value
+        rationale=f"Anthropic scoring with model: {input_data.model}",
+        feedback="This is a placeholder for Anthropic scoring"
+    )
+
+async def execute_with_mistral(input_data: ExecutionInput) -> ExecutionOutput:
+    """Execute evaluation with Mistral."""
+    # Mistral-specific execution logic
     steps = [
         EvaluationStep(
             instruction=1,
@@ -112,24 +154,36 @@ async def evaluate_with_mistral(input_data: ExecutionInput,scoring_mode=False) -
     ]
     return ExecutionOutput(steps=steps)
 
+async def score_with_mistral(input_data: ExecutionInput, execution_result: str) -> ScoringOutput:
+    """Score evaluation with Mistral."""
+    # Mistral-specific scoring logic
+    return ScoringOutput(
+        value=0.5,  # Default value
+        rationale=f"Mistral scoring with model: {input_data.model}",
+        feedback="This is a placeholder for Mistral scoring"
+    )
+
 @function.defn()
-async def execute_node(function_input: ExecutionInput,scoring_mode=False) -> ExecutionOutput:
+async def execute_node(function_input: ExecutionInput) -> ExecutionOutput:
     try:
-        log.info("evaluate_answer function started", function_input=function_input)
-        
-        # Route to appropriate evaluation function based on provider
+        log.info("execute_node function started", function_input=function_input)
+
+        if isinstance(function_input, dict):
+            function_input = ExecutionInput(**function_input)
+
+        # Route to appropriate execution function based on provider
         provider_map = {
-            "openai": evaluate_with_openai,
-            "anthropic": evaluate_with_anthropic,
-            "mistral": evaluate_with_mistral
+            "openai": execute_with_openai,
+            "anthropic": execute_with_anthropic,
+            "mistral": execute_with_mistral
         }
-        
+
         if function_input.provider not in provider_map:
             raise NonRetryableError(f"Unsupported provider: {function_input.provider}")
-            
-        evaluation_function = provider_map[function_input.provider]
-        result = await evaluation_function(function_input)
-        
+
+        execution_function = provider_map[function_input.provider]
+        result = await execution_function(function_input)
+
         return result
     except Exception as e:
         error_message = f"Evaluation failed: {e}"
@@ -137,22 +191,26 @@ async def execute_node(function_input: ExecutionInput,scoring_mode=False) -> Exe
 
 
 @function.defn()
-async def score_node(function_input: ExecutionInput, execution_result:ExecutionOutput) -> ScoringOutput:
+async def score_node(function_input: ExecutionInput, execution_result: ExecutionOutput) -> ScoringOutput:
     try:
-        log.info("score_answer function started", function_input=function_input)
-           # Route to appropriate evaluation function based on provider
+        log.info("score_node function started", function_input=function_input)
+
+        # Route to appropriate scoring function based on provider
         provider_map = {
-            "openai": evaluate_with_openai,
-            "anthropic": evaluate_with_anthropic,
-            "mistral": evaluate_with_mistral
+            "openai": score_with_openai,
+            "anthropic": score_with_anthropic,
+            "mistral": score_with_mistral
         }
-        
+
         if function_input.provider not in provider_map:
             raise NonRetryableError(f"Unsupported provider: {function_input.provider}")
-            
-        evaluation_function = provider_map[function_input.provider]
-        result = await evaluation_function(function_input,scoring_mode=True)
-        
+
+        execution_output_str = json.dumps(execution_result.dict(), indent=2)
+        log.info("execution_str", execution_output_str=execution_output_str)
+
+        scoring_function = provider_map[function_input.provider]
+        result = await scoring_function(function_input, execution_output_str)
+
         return result
     except Exception as e:
         error_message = f"Evaluation failed: {e}"
