@@ -9,6 +9,12 @@ with import_functions():
         ExecutionOutput,
         execute_node,
     )
+with import_functions():
+    from src.functions.scoring import (
+        ScoringInput,
+        ScoringOutput,
+        score_evaluation,
+    )
 
 class EndEvent(BaseModel):
     end: bool
@@ -49,6 +55,14 @@ class EvaluationAgent:
                 start_to_close_timeout=timedelta(seconds=120),
             )
             self.result = result
+            
+            # ⭐ Now score the result
+            self.score_result = await agent.step(
+                function=score_evaluation,
+                function_input=ScoringInput(evaluation=result),
+                start_to_close_timeout=timedelta(seconds=60),
+            )
+            log.info(f"Scoring result: {self.score_result}")
             return result
         except Exception as e:
             error_message = f"Error during evaluation: {e}"
