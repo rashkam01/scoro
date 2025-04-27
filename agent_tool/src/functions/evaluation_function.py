@@ -32,6 +32,11 @@ class ScoringOutput(BaseModel):
     rationale: str
     feedback: str
 
+class ScoringInput(BaseModel):
+    """Combined input for scoring that includes both the execution input and result."""
+    execution_input: ExecutionInput
+    execution_result: ExecutionOutput
+
 async def execute_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
     """Execute evaluation with OpenAI."""
     try:
@@ -191,9 +196,45 @@ async def execute_node(function_input: ExecutionInput) -> ExecutionOutput:
 
 
 @function.defn()
-async def score_node(function_input: ExecutionInput, execution_result: ExecutionOutput) -> ScoringOutput:
+async def score_node(function_input: ScoringInput) -> ScoringOutput:
     try:
-        log.info("score_node function started", function_input=function_input)
+        log.info("score_node function started")
+        log.info(f"function_input type: {type(function_input)}")
+        log.info(f"function_input: {function_input}")
+
+        # Handle different input formats
+        execution_input = None
+        execution_result = None
+
+        if isinstance(function_input, ScoringInput):
+            # If we get a proper ScoringInput object
+            log.info("Received ScoringInput object")
+            execution_input = function_input.execution_input
+            execution_result = function_input.execution_result
+        elif isinstance(function_input, dict):
+            # If we get a dict, try to extract the components
+            log.info("Received dict, extracting components")
+            if "execution_input" in function_input and "execution_result" in function_input:
+                execution_input = ExecutionInput(**function_input["execution_input"])
+                execution_result = ExecutionOutput(**function_input["execution_result"])
+            else:
+                # Assume the dict itself is the execution_input and look for execution_result elsewhere
+                log.info("Dict doesn't contain expected keys, using as execution_input")
+                execution_input = ExecutionInput(**function_input)
+                # execution_result will be None, handled below
+        else:
+            # Unexpected input type
+            error_msg = f"Unexpected input type: {type(function_input)}"
+            log.error(error_msg)
+            raise NonRetryableError(error_msg)
+
+        log.info(f"Extracted execution_input: {execution_input}")
+        log.info(f"Extracted execution_result: {execution_result}")
+
+        if execution_result is None:
+            error_msg = "Missing execution_result"
+            log.error(error_msg)
+            raise NonRetryableError(error_msg)
 
         # Route to appropriate scoring function based on provider
         provider_map = {
@@ -202,14 +243,37 @@ async def score_node(function_input: ExecutionInput, execution_result: Execution
             "mistral": score_with_mistral
         }
 
-        if function_input.provider not in provider_map:
-            raise NonRetryableError(f"Unsupported provider: {function_input.provider}")
+        log.info(f"Provider: {execution_input.provider}")
+        if execution_input.provider not in provider_map:
+            error_msg = f"Unsupported provider: {execution_input.provider}"
+            log.error(error_msg)
+            raise NonRetryableError(error_msg)
 
-        execution_output_str = json.dumps(execution_result.dict(), indent=2)
-        log.info("execution_str", execution_output_str=execution_output_str)
+        try:
+            execution_output_str = json.dumps(execution_result.dict(), indent=2)
+            log.info("execution_str created successfully")
+        except Exception as e:
+            log.error(f"Error converting execution_result to string: {e}")
+            # Try a fallback approach
+            try:
+                if hasattr(execution_result, "__dict__"):
+                    execution_output_str = json.dumps(execution_result.__dict__, indent=2)
+                    log.info("Used __dict__ fallback for execution_result")
+                else:
+                    execution_output_str = str(execution_result)
+                    log.info("Used str() fallback for execution_result")
+            except Exception as e2:
+                log.error(f"Fallback also failed: {e2}")
+                execution_output_str = "{}"  # Empty JSON as last resort
+                log.info("Using empty JSON as last resort")
 
-        scoring_function = provider_map[function_input.provider]
-        result = await scoring_function(function_input, execution_output_str)
+        log.info(f"execution_output_str: {execution_output_str}")
+
+        scoring_function = provider_map[execution_input.provider]
+        log.info(f"Selected scoring function: {scoring_function.__name__}")
+
+        result = await scoring_function(execution_input, execution_output_str)
+        log.info(f"Scoring function returned result: {result}")
 
         return result
     except Exception as e:

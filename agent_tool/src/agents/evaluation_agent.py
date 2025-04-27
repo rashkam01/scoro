@@ -9,7 +9,8 @@ with import_functions():
         ExecutionOutput,
         execute_node,
         score_node,
-        ScoringOutput
+        ScoringOutput,
+        ScoringInput
     )
 
 class EndEvent(BaseModel):
@@ -18,7 +19,7 @@ class EndEvent(BaseModel):
 @agent.defn()
 class EvaluationAgent:
     """Evaluation agent for processing evaluation requests."""
-    
+
     schema = {
         "initial_event": "evaluate",
         "events": {
@@ -44,7 +45,7 @@ class EvaluationAgent:
     @agent.event
     async def evaluate(self, event_input: ExecutionInput) -> ScoringOutput:
         log.info(f"Received evaluation request: {event_input}")
-        
+
         try:
             result = await agent.step(
                 function=execute_node,
@@ -53,15 +54,21 @@ class EvaluationAgent:
             )
             log.info("Result Executiong", result=result)
 
-            
+
+            # Create a ScoringInput object that combines the execution input and result
+            scoring_input = ScoringInput(
+                execution_input=event_input,
+                execution_result=result
+            )
+            log.info(f"Created scoring_input: {scoring_input}")
+
             result_scoring = await agent.step(
                 function=score_node,
-                function_input=event_input,
-                execution_result = result,
+                function_input=scoring_input,
                 start_to_close_timeout=timedelta(seconds=120),
             )
-            
-            
+
+
             log.info("Result Scoring", result_scoring=result_scoring)
             self.result = result_scoring
 
