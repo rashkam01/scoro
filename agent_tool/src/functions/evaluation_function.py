@@ -1,5 +1,6 @@
 from typing import Literal
 import os
+import json
 
 from pydantic import BaseModel
 from restack_ai.function import NonRetryableError, function, log
@@ -51,17 +52,19 @@ async def evaluate_with_openai(input_data: ExecutionInput) -> ExecutionOutput:
 
         # Extract the evaluation steps from the response
         response_content = result.choices[0].message.content
-        
-        log.info("Response from OpenAI", response=response_content)
+        log.info("response_content", response_content=response_content)
 
+        # Step 1: Parse the JSON string into a Python dict
+        response_content_dict = json.loads(response_content)
 
-        # Create evaluation steps from the response
+        # Step 2: Now safely iterate
         steps = [
             EvaluationStep(
-                instruction=1,
-                rationale="OpenAI Analysis",
-                reasoning=response_content
+                instruction=step["instruction"],
+                rationale=step["rationale"],
+                reasoning=step["reasoning"]
             )
+            for step in response_content_dict["steps"]
         ]
 
         log.info("OpenAI evaluation completed", steps=steps)
